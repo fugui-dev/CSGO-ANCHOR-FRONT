@@ -31,6 +31,12 @@
               />
             </div>
           </div>
+          <div class="header-right">
+            <div class="total-amount">
+              <span class="label">消费金额汇总：</span>
+              <span class="amount">{{ totalAmount.toFixed(2) }}元</span>
+            </div>
+          </div>
         </div>
       </template>
       
@@ -142,6 +148,7 @@ const dateRange = ref(null)
 const pageNum = ref(1)
 const pageSize = ref(20)
 const total = ref(0)
+const totalAmount = ref(0)
 const showDetailDialog = ref(false)
 const selectedRecord = ref(null)
 
@@ -163,8 +170,17 @@ const getRecordList = () => {
   loading.value = true
   getPromotionConsumptionRecords(pageNum.value, pageSize.value, filterUserId.value, dateRange.value).then(res => {
     if (res.code === 200) {
-      recordList.value = res.rows || []
-      total.value = res.total || 0
+      // 新的响应结构：res.data 包含 pageData 和 totalAmount
+      if (res.data) {
+        recordList.value = res.data.pageData?.rows || []
+        total.value = res.data.pageData?.total || 0
+        totalAmount.value = res.data.totalAmount || 0
+      } else {
+        // 兼容旧格式（如果后端还没更新）
+        recordList.value = res.rows || []
+        total.value = res.total || 0
+        totalAmount.value = 0
+      }
     }
   }).catch(err => {
     ElMessage.error('获取消费记录失败')
@@ -219,7 +235,7 @@ onMounted(() => {
       display: flex;
       align-items: center;
       gap: 15px;
-      width: 100%;
+      flex: 1;
       
       .date-picker-wrapper {
         width: 33.33%;
@@ -236,6 +252,31 @@ onMounted(() => {
             height: 40px;
             line-height: 40px;
           }
+        }
+      }
+    }
+    
+    .header-right {
+      display: flex;
+      align-items: center;
+      
+      .total-amount {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 8px 16px;
+        background: #f5f7fa;
+        border-radius: 4px;
+        
+        .label {
+          color: #606266;
+          font-size: 14px;
+        }
+        
+        .amount {
+          color: #F54C36;
+          font-weight: bold;
+          font-size: 16px;
         }
       }
     }

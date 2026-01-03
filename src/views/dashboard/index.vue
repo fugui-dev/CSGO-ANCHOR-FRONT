@@ -76,7 +76,7 @@
           <el-descriptions-item label="流水业绩">{{ formatMoney(currentRow.commissionAmount) }}</el-descriptions-item>
         </el-descriptions>
 
-        <div class="cdk-section">
+        <div v-if="isToday(currentRow.statDate)" class="cdk-section">
           <h3>生成CDK</h3>
           <div class="cdk-info">
             <div class="info-item">
@@ -99,7 +99,7 @@
                   :min="0.01"
                   :precision="2"
                   :step="0.01"
-                  placeholder="请输入每张卡金额"
+                  placeholder="请输入每张卡金额（最低50元）"
                   style="width: 100%"
                 />
               </el-form-item>
@@ -108,6 +108,17 @@
               </el-form-item>
             </el-form>
           </div>
+        </div>
+        <div v-else class="cdk-section">
+          <el-alert
+            title="提示"
+            type="info"
+            :closable="false"
+            show-icon>
+            <template #default>
+              <p>只能使用当天的统计数据生成CDK，历史日期的业绩已自动结算。</p>
+            </template>
+          </el-alert>
         </div>
 
         <div v-if="generatedPasswords.length > 0" class="cdk-result">
@@ -164,6 +175,16 @@ const formatMoney = (amount) => {
   return parseFloat(amount).toFixed(2)
 }
 
+// 判断日期是否是今天
+const isToday = (date) => {
+  if (!date) return false
+  const today = new Date()
+  const targetDate = new Date(date)
+  today.setHours(0, 0, 0, 0)
+  targetDate.setHours(0, 0, 0, 0)
+  return today.getTime() === targetDate.getTime()
+}
+
 const handleDateRangeChange = () => {
   loadStatistics()
 }
@@ -204,39 +225,30 @@ const handleViewDetail = async (row) => {
     const statDate = formatDate(row.statDate)
     const res = await getAvailableCdkBalance(statDate)
     if (res.code === 200 && res.data) {
-      // 可用余额 = 流水业绩 - 已使用金额
-      const commissionAmount = parseFloat(row.commissionAmount || 0)
-      const usedAmount = parseFloat(row.usedCdkAmount || 0)
-      availableBalance.value = commissionAmount - usedAmount
+      // 直接使用接口返回的可用余额（已扣除已使用CDK金额和已提取流水业绩）
+      availableBalance.value = parseFloat(res.data.rechargeTotal || 0)
       if (availableBalance.value < 0) {
         availableBalance.value = 0
       }
-      // 默认设置每张卡金额为可用余额的10%（如果可用余额大于0）
+      // 默认设置每张卡金额为可用余额的10%（如果可用余额大于0），但最低为50
       if (availableBalance.value > 0) {
-        cdkForm.value.amount = parseFloat((availableBalance.value * 0.1).toFixed(2))
+        const defaultAmount = parseFloat((availableBalance.value * 0.1).toFixed(2))
+        cdkForm.value.amount = defaultAmount >= 50 ? defaultAmount : 50
       } else {
-        cdkForm.value.amount = 0
+        cdkForm.value.amount = 50
       }
     } else {
       ElMessage.warning(res.msg || '获取可用余额失败')
-      // 如果接口失败，使用统计数据计算
-      const commissionAmount = parseFloat(row.commissionAmount || 0)
-      const usedAmount = parseFloat(row.usedCdkAmount || 0)
-      availableBalance.value = commissionAmount - usedAmount
-      if (availableBalance.value < 0) {
-        availableBalance.value = 0
-      }
+      // 如果接口失败，设置为0
+      availableBalance.value = 0
+      cdkForm.value.amount = 50
     }
   } catch (error) {
     console.error('获取可用余额失败:', error)
     ElMessage.error('获取可用余额失败')
-    // 如果接口失败，使用统计数据计算
-    const consumeAmount = parseFloat(row.consumeAmount || 0)
-    const usedAmount = parseFloat(row.usedCdkAmount || 0)
-    availableBalance.value = consumeAmount - usedAmount
-    if (availableBalance.value < 0) {
-      availableBalance.value = 0
-    }
+    // 如果接口失败，设置为0
+    availableBalance.value = 0
+    cdkForm.value.amount = 50
   }
 }
 
@@ -252,6 +264,11 @@ const handleGenerateCDK = async () => {
 
   if (!cdkForm.value.amount || cdkForm.value.amount <= 0) {
     ElMessage.warning('请输入每张卡金额')
+    return
+  }
+  
+  if (cdkForm.value.amount < 50) {
+    ElMessage.warning('最低额度为50')
     return
   }
 
@@ -272,6 +289,14 @@ const handleGenerateCDK = async () => {
     if (res.code === 200) {
       generatedPasswords.value = res.data || []
       ElMessage.success(`成功生成${generatedPasswords.value.length}张CDK`)
+      // 重新加载统计数据列表
+      await loadStatistics()
+      // 从最新的统计数据中找到对应的行，更新currentRow
+      const currentStatDate = formatDate(currentRow.value.statDate)
+      const updatedRow = statisticsList.value.find(item => formatDate(item.statDate) === currentStatDate)
+      if (updatedRow) {
+        currentRow.value = updatedRow
+      }
       // 重新获取可用余额
       await handleViewDetail(currentRow.value)
     } else {
